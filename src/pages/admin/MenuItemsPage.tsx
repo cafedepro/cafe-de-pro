@@ -1,221 +1,233 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Flame, Pencil, Plus, Star, Trash2 } from 'lucide-react'
-import { Button, FormError } from '../../components/admin/ui'
-import ItemForm from '../../components/admin/ItemForm'
-import DietMark from '../../components/DietMark'
-import { useRestaurant } from '../../context/RestaurantContext'
-import { listCategories } from '../../services/categories'
+import { useEffect, useState } from "react";
+import { useRestaurant } from "../../context/RestaurantContext";
+import { listCategories } from "../../services/categories";
+import type { Category } from "../../services/categories";
 import {
   createMenuItem,
   deleteMenuItem,
-  itemToFormValues,
   listMenuItems,
-  setItemAvailability,
+  toggleAvailability,
   updateMenuItem,
-} from '../../services/menuItems'
-import { formatPrice } from '../../lib/format'
-import { cn } from '../../lib/utils'
-import type { Category, MenuItem } from '../../types/database'
-import type { MenuItemFormValues } from '../../validation/menuItem'
-
-type FormState = { mode: 'closed' } | { mode: 'add' } | { mode: 'edit'; item: MenuItem }
+} from "../../services/menuItems";
+import type { MenuItem } from "../../services/menuItems";
+import { ItemForm } from "../../components/admin/ItemForm";
 
 export default function MenuItemsPage() {
-  const { restaurant } = useRestaurant()
-  const [categories, setCategories] = useState<Category[]>([])
-  const [items, setItems] = useState<MenuItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [form, setForm] = useState<FormState>({ mode: 'closed' })
-
-  const restaurantId = restaurant?.id
-  const currency = restaurant?.currency ?? 'INR'
-
-  const load = useCallback(async () => {
-    if (!restaurantId) return
-    try {
-      const [cats, its] = await Promise.all([listCategories(restaurantId), listMenuItems(restaurantId)])
-      setCategories(cats)
-      setItems(its)
-      setError('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load your menu.')
-    } finally {
-      setLoading(false)
-    }
-  }, [restaurantId])
+  const { restaurant } = useRestaurant();
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [items, setItems] = useState<MenuItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    if (!restaurant) return;
+    refresh();
+  }, [restaurant?.id]);
 
-  const itemsByCategory = useMemo(() => {
-    const map = new Map<string, MenuItem[]>()
-    for (const item of items) map.set(item.category_id, [...(map.get(item.category_id) ?? []), item])
-    return map
-  }, [items])
-
-  if (!restaurantId) return null
-
-  const run = async (action: () => Promise<void>) => {
-    setError('')
+  async function refresh() {
+    if (!restaurant) return;
+    setLoading(true);
     try {
-      await action()
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Try again.')
+      const [cats, menuItems] = await Promise.all([
+        listCategories(restaurant.id),
+        listMenuItems(restaurant.id),
+      ]);
+      setCategories(cats);
+      setItems(menuItems);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't load menu items");
+    } finally {
+      setLoading(false);
     }
   }
 
-  const openForm = (next: FormState) => {
-    setForm(next)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+  async function handleAdd(values: Parameters<typeof createMenuItem>[1]) {
+    if (!restaurant) return;
+    const created = await createMenuItem(restaurant.id, values);
+    setItems((prev) => [...prev, created]);
+    setShowAddForm(false);
   }
 
-  const handleSubmit = async (values: MenuItemFormValues) => {
-    const editing = form.mode === 'edit' ? form.item : null
-    await run(async () => {
-      if (editing) {
-        await updateMenuItem(editing.id, values)
-      } else {
-        const inCategory = itemsByCategory.get(values.category_id) ?? []
-        const nextOrder = inCategory.length ? Math.max(...inCategory.map((i) => i.display_order)) + 1 : 0
-        await createMenuItem(restaurantId, values, nextOrder)
-      }
-      setForm({ mode: 'closed' })
-    })
+  async function handleEdit(values: Parameters<typeof updateMenuItem>[1]) {
+    if (!editingItem) return;
+    const updated = await updateMenuItem(editingItem.id, values);
+    setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    setEditingItem(null);
   }
 
-  const remove = (item: MenuItem) => {
-    if (window.confirm(`Delete "${item.name}"? This cannot be undone.`)) {
-      void run(() => deleteMenuItem(item.id))
+  async function handleDelete(item: MenuItem) {
+    const ok = window.confirm(`Delete "${item.name}"?`);
+    if (!ok) return;
+    setBusyId(item.id);
+    try {
+      await deleteMenuItem(item.id);
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete item");
+    } finally {
+      setBusyId(null);
     }
+  }
+
+  async function handleToggle(item: MenuItem) {
+    setBusyId(item.id);
+    try {
+      await toggleAvailability(item.id, !item.is_available);
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, is_available: !i.is_available } : i))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't update item");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!loading && categories.length === 0) {
+    return (
+      <div>
+        <h1 className="text-2xl font-semibold text-gray-900">Menu items</h1>
+        <p className="mt-1 text-gray-500">Add dishes, change prices, and mark items sold out.</p>
+        <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <p className="text-gray-700">Create at least one category before adding items.</p>
+          <a href="/admin/categories" className="mt-1 inline-block text-emerald-700 underline">
+            Go to Categories
+          </a>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Menu items</h1>
-          <p className="mt-1 text-stone-600">Add dishes, change prices, and mark items sold out.</p>
+          <h1 className="text-2xl font-semibold text-gray-900">Menu items</h1>
+          <p className="mt-1 text-gray-500">Add dishes, change prices, and mark items sold out.</p>
         </div>
-        {form.mode === 'closed' && categories.length > 0 && (
-          <Button onClick={() => openForm({ mode: 'add' })}>
-            <Plus size={18} className="mr-1.5" aria-hidden /> Add item
-          </Button>
+        {!showAddForm && !editingItem && (
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="rounded-md bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800"
+          >
+            Add item
+          </button>
         )}
       </div>
 
-      <FormError>{error}</FormError>
+      {error && (
+        <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
-      {form.mode !== 'closed' && (
-        <ItemForm
-          key={form.mode === 'edit' ? form.item.id : 'new'}
-          categories={categories}
-          initial={form.mode === 'edit' ? itemToFormValues(form.item) : undefined}
-          title={form.mode === 'edit' ? `Edit ${form.item.name}` : 'Add a menu item'}
-          submitLabel={form.mode === 'edit' ? 'Save changes' : 'Add item'}
-          onSubmit={handleSubmit}
-          onCancel={() => setForm({ mode: 'closed' })}
-        />
+      {showAddForm && restaurant && (
+        <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 font-medium text-gray-900">Add an item</h2>
+          <ItemForm
+            restaurantId={restaurant.id}
+            categories={categories}
+            onCancel={() => setShowAddForm(false)}
+            onSubmit={handleAdd}
+          />
+        </div>
+      )}
+
+      {editingItem && restaurant && (
+        <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 font-medium text-gray-900">Edit item</h2>
+          <ItemForm
+            restaurantId={restaurant.id}
+            categories={categories}
+            initialItem={editingItem}
+            onCancel={() => setEditingItem(null)}
+            onSubmit={handleEdit}
+          />
+        </div>
       )}
 
       {loading ? (
-        <p className="text-stone-600">Loading…</p>
-      ) : categories.length === 0 ? (
-        <div className="rounded-xl border border-stone-200 bg-white p-5">
-          <p>Create at least one category before adding items.</p>
-          <Link to="/admin/categories" className="mt-2 inline-block font-medium text-emerald-800 underline">
-            Go to Categories
-          </Link>
-        </div>
+        <p className="mt-6 text-gray-500">Loading...</p>
       ) : (
-        categories.map((category) => {
-          const list = itemsByCategory.get(category.id) ?? []
-          return (
-            <section key={category.id} aria-labelledby={`cat-${category.id}`}>
-              <h2 id={`cat-${category.id}`} className="mb-2 text-lg font-medium">
-                {category.name}
-                {!category.is_active && <span className="ml-2 text-sm font-normal text-stone-500">(hidden)</span>}
-              </h2>
-              <div className="rounded-xl border border-stone-200 bg-white">
-                {list.length === 0 ? (
-                  <p className="p-4 text-stone-500">No items in this category yet.</p>
-                ) : (
-                  <ul className="divide-y divide-stone-200">
-                    {list.map((item) => (
-                      <li key={item.id} className="flex flex-wrap items-center gap-3 p-4">
-                        {item.image_url && (
-                          <img
-                            src={item.image_url}
-                            alt=""
-                            width={48}
-                            height={48}
-                            loading="lazy"
-                            className="h-12 w-12 shrink-0 rounded-lg object-cover"
-                          />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-2">
-                            <DietMark isVeg={item.is_vegetarian} isNonVeg={item.is_non_vegetarian} />
-                            <span className={cn('truncate font-medium', !item.is_available && 'text-stone-400')}>
-                              {item.name}
-                            </span>
-                            {item.is_spicy && <Flame size={15} className="shrink-0 text-red-600" aria-label="Spicy" />}
-                            {item.is_featured && <Star size={15} className="shrink-0 text-amber-500" aria-label="Featured" />}
-                          </p>
-                          <p className="text-sm text-stone-600">
-                            {formatPrice(item.price, currency)}
-                            {item.original_price != null && item.original_price > item.price && (
-                              <span className="ml-2 text-stone-400 line-through">
-                                {formatPrice(item.original_price, currency)}
+        <div className="mt-6 space-y-6">
+          {categories.map((category) => {
+            const categoryItems = items.filter((i) => i.category_id === category.id);
+            if (categoryItems.length === 0) return null;
+            return (
+              <div key={category.id}>
+                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  {category.name}
+                </h3>
+                <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+                  <ul className="divide-y divide-gray-100">
+                    {categoryItems.map((item) => (
+                      <li key={item.id} className="flex items-center gap-4 p-4">
+                        <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-md bg-gray-100">
+                          {item.image_url ? (
+                            <img
+                              src={item.image_url}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : null}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-900">{item.name}</p>
+                            {!item.is_available && (
+                              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                                Sold out
                               </span>
                             )}
+                          </div>
+                          {item.description && (
+                            <p className="text-sm text-gray-500">{item.description}</p>
+                          )}
+                          <p className="text-sm font-medium text-gray-700">
+                            ₹{Number(item.price).toFixed(2)}
                           </p>
                         </div>
-
-                        <button
-                          type="button"
-                          aria-pressed={item.is_available}
-                          onClick={() => void run(() => setItemAvailability(item.id, !item.is_available))}
-                          className={cn(
-                            'rounded-full px-3 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700',
-                            item.is_available ? 'bg-emerald-100 text-emerald-900' : 'bg-stone-200 text-stone-600',
-                          )}
-                        >
-                          {item.is_available ? 'Available' : 'Sold out'}
-                        </button>
-
-                        <div className="flex items-center">
+                        <div className="flex flex-shrink-0 items-center gap-2">
                           <button
-                            type="button"
-                            aria-label={`Edit ${item.name}`}
-                            title="Edit"
-                            onClick={() => openForm({ mode: 'edit', item })}
-                            className="rounded-lg p-2 text-stone-600 hover:bg-stone-100"
+                            onClick={() => handleToggle(item)}
+                            disabled={busyId === item.id}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                           >
-                            <Pencil size={18} />
+                            {item.is_available ? "Mark sold out" : "Mark available"}
                           </button>
                           <button
-                            type="button"
-                            aria-label={`Delete ${item.name}`}
-                            title="Delete"
-                            onClick={() => remove(item)}
-                            className="rounded-lg p-2 text-stone-600 hover:bg-stone-100"
+                            onClick={() => {
+                              setShowAddForm(false);
+                              setEditingItem(item);
+                            }}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
                           >
-                            <Trash2 size={18} />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item)}
+                            disabled={busyId === item.id}
+                            className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Delete
                           </button>
                         </div>
                       </li>
                     ))}
                   </ul>
-                )}
+                </div>
               </div>
-            </section>
-          )
-        })
+            );
+          })}
+          {items.length === 0 && (
+            <p className="text-gray-500">No items yet. Add your first one above.</p>
+          )}
+        </div>
       )}
     </div>
-  )
+  );
 }

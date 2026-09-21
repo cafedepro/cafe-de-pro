@@ -1,160 +1,184 @@
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { Button, Field } from './ui'
-import ImageUploader from './ImageUploader'
-import { useRestaurant } from '../../context/RestaurantContext'
-import { menuItemSchema, type MenuItemFormValues } from '../../validation/menuItem'
-import type { Category } from '../../types/database'
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { menuItemSchema } from "../../validation/menuItem";
+import type { MenuItemFormValues } from "../../validation/menuItem";
+import type { Category } from "../../services/categories";
+import { uploadItemImage } from "../../services/menuItems";
+import type { MenuItem } from "../../services/menuItems";
 
-const EMPTY: MenuItemFormValues = {
-  name: '',
-  category_id: '',
-  description: '',
-  price: '',
-  original_price: '',
-  diet: 'none',
-  is_spicy: false,
-  is_featured: false,
-  is_available: true,
-  image_url: '',
-  preparation_time: '',
-  calories: '',
+interface ItemFormProps {
+  restaurantId: string;
+  categories: Category[];
+  initialItem?: MenuItem;
+  onCancel: () => void;
+  onSubmit: (values: {
+    category_id: string;
+    name: string;
+    description?: string;
+    price: number;
+    image_url?: string | null;
+    is_available: boolean;
+  }) => Promise<void>;
 }
 
-interface Props {
-  categories: Category[]
-  initial?: MenuItemFormValues
-  title: string
-  submitLabel: string
-  onSubmit: (values: MenuItemFormValues) => Promise<void>
-  onCancel: () => void
-}
+export function ItemForm({
+  restaurantId,
+  categories,
+  initialItem,
+  onCancel,
+  onSubmit,
+}: ItemFormProps) {
+  const [imageUrl, setImageUrl] = useState<string | null>(initialItem?.image_url ?? null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-export default function ItemForm({ categories, initial, title, submitLabel, onSubmit, onCancel }: Props) {
-  const { restaurant } = useRestaurant()
   const {
     register,
     handleSubmit,
-    watch,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<MenuItemFormValues>({
     resolver: zodResolver(menuItemSchema),
-    defaultValues: initial ?? { ...EMPTY, category_id: categories[0]?.id ?? '' },
-  })
+    defaultValues: {
+      category_id: initialItem?.category_id ?? categories[0]?.id ?? "",
+      name: initialItem?.name ?? "",
+      description: initialItem?.description ?? "",
+      price: initialItem ? String(initialItem.price) : "",
+      is_available: initialItem?.is_available ?? true,
+    },
+  });
 
-  const imageUrl = watch('image_url')
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const url = await uploadItemImage(restaurantId, file);
+      setImageUrl(url);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
 
-  const selectClass =
-    'w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-base outline-none focus-visible:ring-2 focus-visible:ring-emerald-700'
+  async function handleFormSubmit(values: MenuItemFormValues) {
+    await onSubmit({
+      category_id: values.category_id,
+      name: values.name,
+      description: values.description,
+      price: Number(values.price),
+      image_url: imageUrl,
+      is_available: values.is_available,
+    });
+  }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4 rounded-xl border border-stone-200 bg-white p-5">
-      <h2 className="text-lg font-medium">{title}</h2>
+    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Photo</label>
+        <div className="mt-1 flex items-center gap-4">
+          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-md border border-dashed border-gray-300 bg-gray-50">
+            {imageUrl ? (
+              <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-xs text-gray-400">No photo</span>
+            )}
+          </div>
+          <label className="cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            {uploading ? "Uploading..." : "Upload photo"}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              disabled={uploading}
+              className="hidden"
+            />
+          </label>
+        </div>
+        {uploadError && <p className="mt-1 text-sm text-red-600">{uploadError}</p>}
+      </div>
 
-      <Field label="Item name" error={errors.name?.message} {...register('name')} />
-
-      <div className="space-y-1.5">
-        <label htmlFor="category_id" className="block text-sm font-medium text-stone-800">
-          Category
-        </label>
-        <select id="category_id" className={selectClass} {...register('category_id')}>
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Category</label>
+        <select
+          {...register("category_id")}
+          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+        >
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
           ))}
         </select>
-        {errors.category_id && <p className="text-sm text-red-700">{errors.category_id.message}</p>}
+        {errors.category_id && (
+          <p className="mt-1 text-sm text-red-600">{errors.category_id.message}</p>
+        )}
       </div>
 
-      <div className="space-y-1.5">
-        <label htmlFor="description" className="block text-sm font-medium text-stone-800">
-          Description (optional)
-        </label>
-        <textarea id="description" rows={3} className={selectClass} {...register('description')} />
-        {errors.description && <p className="text-sm text-red-700">{errors.description.message}</p>}
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Name</label>
+        <input
+          {...register("name")}
+          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+          placeholder="e.g. Margherita Pizza"
+        />
+        {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>}
       </div>
 
-      {restaurant && (
-        <>
-          <input type="hidden" {...register('image_url')} />
-          <ImageUploader
-            label="Photo (optional)"
-            hint="A clear photo from above works well."
-            value={imageUrl}
-            restaurantId={restaurant.id}
-            folder="items"
-            maxDimension={1000}
-            shape="square"
-            onChange={(url) => setValue('image_url', url, { shouldDirty: true })}
-          />
-        </>
-      )}
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Description (optional)</label>
+        <textarea
+          {...register("description")}
+          rows={2}
+          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+          placeholder="e.g. Tomato, mozzarella, basil"
+        />
+        {errors.description && (
+          <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
+        )}
+      </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Price" type="number" step="0.01" min="0" inputMode="decimal" error={errors.price?.message} {...register('price')} />
-        <Field
-          label="Original price (optional)"
-          hint="Shown crossed out when you run an offer"
-          type="number"
-          step="0.01"
-          min="0"
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Price</label>
+        <input
+          {...register("price")}
           inputMode="decimal"
-          error={errors.original_price?.message}
-          {...register('original_price')}
+          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+          placeholder="e.g. 249"
         />
+        {errors.price && <p className="mt-1 text-sm text-red-600">{errors.price.message}</p>}
       </div>
 
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium text-stone-800">Food type</legend>
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          {(
-            [
-              ['veg', 'Vegetarian'],
-              ['vegan', 'Vegan'],
-              ['non_veg', 'Non-vegetarian'],
-              ['none', 'Not specified'],
-            ] as const
-          ).map(([value, label]) => (
-            <label key={value} className="flex items-center gap-2">
-              <input type="radio" value={value} {...register('diet')} className="h-4 w-4 accent-emerald-800" />
-              {label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" {...register('is_spicy')} className="h-4 w-4 accent-emerald-800" /> Spicy
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" {...register('is_featured')} className="h-4 w-4 accent-emerald-800" /> Featured
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" {...register('is_available')} className="h-4 w-4 accent-emerald-800" /> Available now
-        </label>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Preparation time in minutes (optional)"
-          inputMode="numeric"
-          error={errors.preparation_time?.message}
-          {...register('preparation_time')}
+      <div className="flex items-center gap-2">
+        <input
+          id="is_available"
+          type="checkbox"
+          {...register("is_available")}
+          className="h-4 w-4 rounded border-gray-300 text-emerald-700 focus:ring-emerald-600"
         />
-        <Field label="Calories (optional)" inputMode="numeric" error={errors.calories?.message} {...register('calories')} />
+        <label htmlFor="is_available" className="text-sm text-gray-700">
+          Available (uncheck to mark sold out)
+        </label>
       </div>
 
-      <div className="flex gap-2">
-        <Button type="submit" loading={isSubmitting}>
-          {submitLabel}
-        </Button>
-        <Button type="button" variant="ghost" onClick={onCancel}>
+      <div className="flex gap-2 pt-2">
+        <button
+          type="submit"
+          disabled={isSubmitting || uploading}
+          className="rounded-md bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+        >
+          {isSubmitting ? "Saving..." : initialItem ? "Save changes" : "Add item"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md border border-gray-300 px-4 py-2 font-medium text-gray-700 hover:bg-gray-50"
+        >
           Cancel
-        </Button>
+        </button>
       </div>
     </form>
-  )
+  );
 }

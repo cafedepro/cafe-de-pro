@@ -1,25 +1,20 @@
-import { z } from 'zod'
-
-const optionalNumber = (label: string) =>
-  z.string().refine((v) => v.trim() === '' || (!Number.isNaN(Number(v)) && Number(v) >= 0), `Enter a valid ${label}`)
-
-const optionalWholeNumber = (label: string) =>
-  z.string().refine((v) => v.trim() === '' || /^\d+$/.test(v.trim()), `Enter ${label} as a whole number`)
+import { z } from "zod";
 
 export const menuItemSchema = z.object({
-  name: z.string().trim().min(1, 'Enter the item name').max(120, 'Use 120 characters or fewer'),
-  category_id: z.string().min(1, 'Choose a category'),
-  description: z.string().trim().max(500, 'Use 500 characters or fewer'),
+  category_id: z.string().uuid("Choose a category"),
+  name: z.string().min(1, "Name is required").max(80, "Keep it under 80 characters"),
+  description: z
+    .string()
+    .max(280, "Keep it under 280 characters")
+    .optional()
+    .or(z.literal("")),
   price: z
     .string()
-    .refine((v) => v.trim() !== '' && !Number.isNaN(Number(v)) && Number(v) >= 0, 'Enter a valid price'),
-  original_price: optionalNumber('price'),
-  diet: z.enum(['veg', 'non_veg', 'vegan', 'none']),
-  is_spicy: z.boolean(),
-  is_featured: z.boolean(),
+    .min(1, "Price is required")
+    .refine((val) => !Number.isNaN(Number(val)) && Number(val) >= 0, {
+      message: "Enter a valid price",
+    }),
   is_available: z.boolean(),
-  image_url: z.string(),
-  preparation_time: optionalWholeNumber('minutes'),
-  calories: optionalWholeNumber('calories'),
-})
-export type MenuItemFormValues = z.infer<typeof menuItemSchema>
+});
+
+export type MenuItemFormValues = z.infer<typeof menuItemSchema>;

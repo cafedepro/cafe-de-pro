@@ -1,83 +1,141 @@
-import { supabase } from '../lib/supabase'
-import { slugify } from '../lib/utils'
-import type { MenuItem } from '../types/database'
-import type { MenuItemFormValues } from '../validation/menuItem'
+import { supabase } from "../lib/supabase";
 
-function blankToNull(v: string): number | null {
-  return v.trim() === '' ? null : Number(v)
+export interface MenuItem {
+  id: string;
+  restaurant_id: string;
+  category_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  price: number;
+  image_url: string | null;
+  is_available: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
-// Converts form text values into the exact shape the database expects.
-function toPayload(v: MenuItemFormValues) {
-  return {
-    name: v.name,
-    category_id: v.category_id,
-    description: v.description || null,
-    price: Number(v.price),
-    original_price: blankToNull(v.original_price),
-    is_vegetarian: v.diet === 'veg' || v.diet === 'vegan',
-    is_vegan: v.diet === 'vegan',
-    is_non_vegetarian: v.diet === 'non_veg',
-    is_spicy: v.is_spicy,
-    is_featured: v.is_featured,
-    is_available: v.is_available,
-    image_url: v.image_url || null,
-    preparation_time: blankToNull(v.preparation_time),
-    calories: blankToNull(v.calories),
-  }
+function slugify(name: string): string {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+  // Short random suffix keeps (restaurant_id, slug) unique without an extra query.
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return `${base || "item"}-${suffix}`;
 }
 
 export async function listMenuItems(restaurantId: string): Promise<MenuItem[]> {
   const { data, error } = await supabase
-    .from('menu_items')
-    .select('*')
-    .eq('restaurant_id', restaurantId)
-    .order('display_order', { ascending: true })
-    .order('created_at', { ascending: true })
-  if (error) throw error
-  return data as MenuItem[]
+    .from("menu_items")
+    .select("*")
+    .eq("restaurant_id", restaurantId)
+    .order("display_order", { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function createMenuItem(
   restaurantId: string,
-  values: MenuItemFormValues,
-  displayOrder: number,
-): Promise<void> {
-  const slug = `${slugify(values.name) || 'item'}-${Math.random().toString(36).slice(2, 6)}`
-  const { error } = await supabase
-    .from('menu_items')
-    .insert({ ...toPayload(values), restaurant_id: restaurantId, slug, display_order: displayOrder })
-  if (error) throw error
+  values: {
+    category_id: string;
+    name: string;
+    description?: string;
+    price: number;
+    image_url?: string | null;
+    is_available: boolean;
+  }
+): Promise<MenuItem> {
+  const { data: existing, error: countError } = await supabase
+    .from("menu_items")
+    .select("display_order")
+    .eq("category_id", values.category_id)
+    .order("display_order", { ascending: false })
+    .limit(1);
+
+  if (countError) throw countError;
+  const nextDisplayOrder =
+    existing && existing.length > 0 ? existing[0].display_order + 1 : 0;
+
+  const { data, error } = await supabase
+    .from("menu_items")
+    .insert({
+      restaurant_id: restaurantId,
+      category_id: values.category_id,
+      name: values.name,
+      slug: slugify(values.name),
+      description: values.description || null,
+      price: values.price,
+      image_url: values.image_url || null,
+      is_available: values.is_available,
+      display_order: nextDisplayOrder,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 }
 
-export async function updateMenuItem(id: string, values: MenuItemFormValues): Promise<void> {
-  const { error } = await supabase.from('menu_items').update(toPayload(values)).eq('id', id)
-  if (error) throw error
-}
+export async function updateMenuItem(
+  id: string,
+  values: {
+    category_id: string;
+    name: string;
+    description?: string;
+    price: number;
+    image_url?: string | null;
+    is_available: boolean;
+  }
+): Promise<MenuItem> {
+  const { data, error } = await supabase
+    .from("menu_items")
+    .update({
+      category_id: values.category_id,
+      name: values.name,
+      description: values.description || null,
+      price: values.price,
+      image_url: values.image_url || null,
+      is_available: values.is_available,
+    })
+    .eq("id", id)
+    .select()
+    .single();
 
-export async function setItemAvailability(id: string, isAvailable: boolean): Promise<void> {
-  const { error } = await supabase.from('menu_items').update({ is_available: isAvailable }).eq('id', id)
-  if (error) throw error
+  if (error) throw error;
+  return data;
 }
 
 export async function deleteMenuItem(id: string): Promise<void> {
-  const { error } = await supabase.from('menu_items').delete().eq('id', id)
-  if (error) throw error
+  const { error } = await supabase.from("menu_items").delete().eq("id", id);
+  if (error) throw error;
 }
 
-export function itemToFormValues(item: MenuItem): MenuItemFormValues {
-  return {
-    name: item.name,
-    category_id: item.category_id,
-    description: item.description ?? '',
-    price: String(item.price),
-    original_price: item.original_price == null ? '' : String(item.original_price),
-    diet: item.is_vegan ? 'vegan' : item.is_vegetarian ? 'veg' : item.is_non_vegetarian ? 'non_veg' : 'none',
-    is_spicy: item.is_spicy,
-    is_featured: item.is_featured,
-    is_available: item.is_available,
-    image_url: item.image_url ?? '',
-    preparation_time: item.preparation_time == null ? '' : String(item.preparation_time),
-    calories: item.calories == null ? '' : String(item.calories),
-  }
+export async function toggleAvailability(id: string, isAvailable: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("menu_items")
+    .update({ is_available: isAvailable })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// Uploads an item photo to the restaurant-media bucket, scoped under the
+// restaurant's own folder so storage policies (owns_restaurant) apply.
+export async function uploadItemImage(
+  restaurantId: string,
+  file: File
+): Promise<string> {
+  const ext = file.name.split(".").pop();
+  const path = `${restaurantId}/items/${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("restaurant-media")
+    .upload(path, file, { upsert: false });
+
+  if (error) throw error;
+
+  const { data } = supabase.storage.from("restaurant-media").getPublicUrl(path);
+  return data.publicUrl;
 }

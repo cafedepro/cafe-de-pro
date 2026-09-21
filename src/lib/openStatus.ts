@@ -1,46 +1,47 @@
-export type OpenStatus = 'open' | 'closed' | 'unknown'
+export function isRestaurantOpen(
+  openingTime: string | null,
+  closingTime: string | null,
+  timezone: string
+): boolean {
+  // No hours configured yet — don't tell customers a restaurant is closed
+  // when the owner simply hasn't filled this in.
+  if (!openingTime || !closingTime) return true;
 
-function toMinutes(t: string): number {
-  const [h, m] = t.split(':')
-  return Number(h) * 60 + Number(m)
-}
-
-// Uses the RESTAURANT's timezone, never the visitor's.
-export function getOpenStatus(
-  timezone: string,
-  opening: string | null,
-  closing: string | null,
-  now: Date = new Date(),
-): OpenStatus {
-  if (!opening || !closing) return 'unknown'
-
-  let nowMin: number
   try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-GB", {
       timeZone: timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(now)
-    const h = Number(parts.find((p) => p.type === 'hour')?.value)
-    const m = Number(parts.find((p) => p.type === 'minute')?.value)
-    if (Number.isNaN(h) || Number.isNaN(m)) return 'unknown'
-    nowMin = h * 60 + m
-  } catch {
-    return 'unknown'
-  }
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
 
-  const o = toMinutes(opening)
-  const c = toMinutes(closing)
-  if (o === c) return 'open' // same time = open 24 hours
-  const isOpen = o < c ? nowMin >= o && nowMin < c : nowMin >= o || nowMin < c // second case: past midnight
-  return isOpen ? 'open' : 'closed'
+    const hh = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+    const mm = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+    const nowMinutes = hh * 60 + mm;
+
+    const [openH, openM] = openingTime.split(":").map(Number);
+    const [closeH, closeM] = closingTime.split(":").map(Number);
+    const openMinutes = openH * 60 + openM;
+    const closeMinutes = closeH * 60 + closeM;
+
+    if (closeMinutes > openMinutes) {
+      return nowMinutes >= openMinutes && nowMinutes < closeMinutes;
+    }
+    // Overnight hours, e.g. 18:00 - 02:00
+    return nowMinutes >= openMinutes || nowMinutes < closeMinutes;
+  } catch {
+    return true;
+  }
 }
 
-export function formatTime(t: string | null): string {
-  if (!t) return ''
-  const [h, m] = t.split(':').map(Number)
-  const suffix = h >= 12 ? 'PM' : 'AM'
-  const hour12 = h % 12 === 0 ? 12 : h % 12
-  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`
+export function formatHours(openingTime: string | null, closingTime: string | null): string | null {
+  if (!openingTime || !closingTime) return null;
+  const fmt = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    const period = h >= 12 ? "PM" : "AM";
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+  };
+  return `${fmt(openingTime)} - ${fmt(closingTime)}`;
 }

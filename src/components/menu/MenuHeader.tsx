@@ -1,125 +1,82 @@
-import { MapPin, MessageCircle, Phone } from 'lucide-react'
-import { formatTime, type OpenStatus } from '../../lib/openStatus'
-import { readableOn } from '../../lib/color'
-import type { Restaurant, RestaurantSettings } from '../../types/database'
+import type { PublicRestaurant } from "../../types/menu";
+import { formatHours, isRestaurantOpen } from "../../lib/openStatus";
 
-const serif = { fontFamily: 'Georgia, "Times New Roman", serif' }
-
-interface Props {
-  restaurant: Restaurant
-  settings: RestaurantSettings
-  status: OpenStatus
-  table: string | null
-  onCall: () => void
-  onWhatsApp: () => void
+interface MenuHeaderProps {
+  restaurant: PublicRestaurant;
 }
 
-export default function MenuHeader({ restaurant, settings, status, table, onCall, onWhatsApp }: Props) {
-  const primary = settings.primary_color
-  const textColor = readableOn(primary)
-  const location = [restaurant.city, restaurant.state].filter(Boolean).join(', ')
-  const whatsappDigits = restaurant.whatsapp_number?.replace(/\D/g, '')
-  const initials = restaurant.name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase())
-    .join('')
+export function MenuHeader({ restaurant }: MenuHeaderProps) {
+  const open = isRestaurantOpen(restaurant.opening_time, restaurant.closing_time, restaurant.timezone);
+  const hours = formatHours(restaurant.opening_time, restaurant.closing_time);
+  const locationLine = [restaurant.city, restaurant.state].filter(Boolean).join(", ");
 
   return (
-    <header className="relative overflow-hidden" style={{ backgroundColor: primary, color: textColor }}>
-      {restaurant.cover_image_url && (
-        <>
+    <div>
+      {restaurant.cover_image_url ? (
+        <div className="h-40 w-full overflow-hidden bg-gray-200 sm:h-56">
           <img
             src={restaurant.cover_image_url}
             alt=""
-            className="absolute inset-0 h-full w-full object-cover"
-            decoding="async"
+            className="h-full w-full object-cover"
           />
-          <div className="absolute inset-0 bg-black/55" aria-hidden />
-        </>
+        </div>
+      ) : (
+        <div className="h-24 w-full bg-gradient-to-r from-emerald-700 to-emerald-600 sm:h-32" />
       )}
 
-      <div className="relative mx-auto max-w-2xl px-5 pb-7 pt-10">
-        <div className="flex items-center gap-4">
-          {restaurant.logo_url ? (
-            <img
-              src={restaurant.logo_url}
-              alt={`${restaurant.name} logo`}
-              width={64}
-              height={64}
-              className="h-16 w-16 shrink-0 rounded-full border-2 border-white/40 object-cover"
-            />
-          ) : (
-            <div
-              aria-hidden
-              className="grid h-16 w-16 shrink-0 place-items-center rounded-full border-2 text-xl font-semibold"
-              style={{ borderColor: 'currentColor', ...serif }}
-            >
-              {initials}
-            </div>
-          )}
-          <div className="min-w-0">
-            <h1 className="text-3xl font-bold leading-tight" style={serif}>
-              {restaurant.name}
-            </h1>
-            {table && <p className="mt-0.5 text-sm opacity-80">Table {table}</p>}
+      <div className="mx-auto max-w-2xl px-4">
+        <div className="-mt-10 flex items-end gap-4 sm:-mt-12">
+          <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl border-4 border-white bg-white shadow-sm sm:h-24 sm:w-24">
+            {restaurant.logo_url ? (
+              <img src={restaurant.logo_url} alt={restaurant.name} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-emerald-100 text-2xl font-semibold text-emerald-700">
+                {restaurant.name.charAt(0).toUpperCase()}
+              </div>
+            )}
           </div>
-        </div>
-
-        {restaurant.description && <p className="mt-4 max-w-prose leading-relaxed opacity-90">{restaurant.description}</p>}
-
-        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-          {status !== 'unknown' && (
+          <div className="pb-1">
             <span
-              className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold tracking-wider"
-              style={{ backgroundColor: status === 'open' ? '#dcfce7' : '#fee2e2', color: status === 'open' ? '#14532d' : '#7f1d1d' }}
+              className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                open ? "bg-emerald-100 text-emerald-800" : "bg-gray-200 text-gray-600"
+              }`}
             >
-              <span
-                aria-hidden
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: status === 'open' ? '#16a34a' : '#dc2626' }}
-              />
-              {status === 'open' ? 'OPEN NOW' : 'CLOSED'}
+              {open ? "Open now" : "Closed"}
             </span>
-          )}
-          {restaurant.opening_time && restaurant.closing_time && (
-            <span className="opacity-90">
-              {formatTime(restaurant.opening_time)} – {formatTime(restaurant.closing_time)}
-            </span>
-          )}
-          {location && (
-            <span className="inline-flex items-center gap-1 opacity-90">
-              <MapPin size={14} aria-hidden /> {location}
-            </span>
-          )}
+          </div>
         </div>
 
-        {(restaurant.phone || (settings.enable_whatsapp && whatsappDigits)) && (
-          <div className="mt-5 flex flex-wrap gap-2">
-            {restaurant.phone && (
-              <a
-                href={`tel:${restaurant.phone}`}
-                onClick={onCall}
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold"
-                style={{ backgroundColor: settings.accent_color, color: readableOn(settings.accent_color) }}
-              >
-                <Phone size={16} aria-hidden /> Call
-              </a>
-            )}
-            {settings.enable_whatsapp && whatsappDigits && (
-              <a
-                href={`https://wa.me/${whatsappDigits}`}
-                target="_blank"
-                rel="noreferrer"
-                onClick={onWhatsApp}
-                className="inline-flex items-center gap-2 rounded-full border border-current px-4 py-2.5 text-sm font-semibold"
-              >
-                <MessageCircle size={16} aria-hidden /> WhatsApp
-              </a>
-            )}
-          </div>
+        <h1 className="mt-3 text-2xl font-semibold text-gray-900">{restaurant.name}</h1>
+        {restaurant.description && (
+          <p className="mt-1 text-gray-600">{restaurant.description}</p>
         )}
+
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
+          {locationLine && <span>{locationLine}</span>}
+          {hours && <span>{hours}</span>}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {restaurant.whatsapp_number && (
+            <a
+              href={`https://wa.me/${restaurant.whatsapp_number.replace(/[^0-9]/g, "")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full bg-emerald-700 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-800"
+            >
+              WhatsApp
+            </a>
+          )}
+          {restaurant.phone && (
+            <a
+              href={`tel:${restaurant.phone}`}
+              className="rounded-full border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Call
+            </a>
+          )}
+        </div>
       </div>
-    </header>
-  )
+    </div>
+  );
 }

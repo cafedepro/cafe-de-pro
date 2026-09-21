@@ -1,88 +1,80 @@
-import { Flame, Star } from 'lucide-react'
-import DietMark from '../DietMark'
-import { formatPrice } from '../../lib/format'
-import { cn } from '../../lib/utils'
-import type { MenuItem, RestaurantSettings } from '../../types/database'
+import type { PublicMenuItem } from "../../types/menu";
 
-interface Props {
-  item: MenuItem
-  currency: string
-  settings: RestaurantSettings
-  onOpen: (item: MenuItem) => void
+interface MenuItemCardProps {
+  item: PublicMenuItem;
+  currency: string;
+  onSelect: (item: PublicMenuItem) => void;
 }
 
-export default function MenuItemCard({ item, currency, settings, onOpen }: Props) {
-  const showImage = settings.show_images && !!item.image_url
-  const unavailable = !item.is_available
+function formatPrice(amount: number, currency: string) {
+  try {
+    return new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
 
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={() => onOpen(item)}
-        className="flex w-full gap-4 rounded-2xl border border-stone-200/80 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
+export function DietIndicator({ item }: { item: PublicMenuItem }) {
+  if (item.is_vegan || item.is_vegetarian) {
+    return (
+      <span
+        title={item.is_vegan ? "Vegan" : "Vegetarian"}
+        className="inline-block h-3.5 w-3.5 flex-shrink-0 border-2 border-green-600"
       >
-        <div className={cn('min-w-0 flex-1', unavailable && 'opacity-60')}>
-          <div className="flex items-center gap-2">
-            <DietMark isVeg={item.is_vegetarian} isNonVeg={item.is_non_vegetarian} />
-            <h3 className="text-base font-semibold leading-snug">{item.name}</h3>
-          </div>
+        <span className="block h-full w-full scale-50 rounded-full bg-green-600" />
+      </span>
+    );
+  }
+  if (item.is_non_vegetarian) {
+    return (
+      <span
+        title="Non-vegetarian"
+        className="inline-block h-3.5 w-3.5 flex-shrink-0 border-2 border-red-700"
+      >
+        <span className="block h-full w-full scale-50 rounded-full bg-red-700" />
+      </span>
+    );
+  }
+  return null;
+}
 
-          {(item.is_featured || item.is_spicy) && (
-            <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-medium">
-              {item.is_featured && (
-                <span
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5"
-                  style={{ backgroundColor: settings.accent_color, color: '#111827' }}
-                >
-                  <Star size={12} aria-hidden /> Featured
-                </span>
-              )}
-              {item.is_spicy && (
-                <span className="inline-flex items-center gap-1 text-red-700">
-                  <Flame size={13} aria-hidden /> Spicy
-                </span>
-              )}
-            </p>
+export function MenuItemCard({ item, currency, onSelect }: MenuItemCardProps) {
+  return (
+    <button
+      onClick={() => onSelect(item)}
+      disabled={!item.is_available}
+      className={`flex w-full items-start gap-3 border-b border-gray-100 py-4 text-left last:border-b-0 ${
+        item.is_available ? "" : "opacity-60"
+      }`}
+    >
+      <div className="flex-1">
+        <div className="flex items-center gap-1.5">
+          <DietIndicator item={item} />
+          <p className="font-medium text-gray-900">{item.name}</p>
+          {item.is_spicy && <span title="Spicy">🌶️</span>}
+        </div>
+        {item.description && (
+          <p className="mt-0.5 line-clamp-2 text-sm text-gray-500">{item.description}</p>
+        )}
+        <div className="mt-1 flex items-center gap-2">
+          <span className="font-medium text-gray-900">{formatPrice(item.price, currency)}</span>
+          {item.original_price && item.original_price > item.price && (
+            <span className="text-sm text-gray-400 line-through">
+              {formatPrice(item.original_price, currency)}
+            </span>
           )}
-
-          {settings.show_descriptions && item.description && (
-            <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-stone-600">{item.description}</p>
-          )}
-
-          <div className="mt-2.5 flex flex-wrap items-baseline gap-x-2">
-            {settings.show_prices && (
-              <>
-                <span className="text-base font-bold">{formatPrice(item.price, currency)}</span>
-                {item.original_price != null && item.original_price > item.price && (
-                  <span className="text-sm text-stone-400 line-through">{formatPrice(item.original_price, currency)}</span>
-                )}
-              </>
-            )}
-            {settings.show_calories && item.calories != null && (
-              <span className="text-xs text-stone-500">{item.calories} kcal</span>
-            )}
-          </div>
-
-          {unavailable && (
-            <p className="mt-2 inline-block rounded-full bg-stone-200 px-2.5 py-0.5 text-xs font-semibold text-stone-700">
-              Currently unavailable
-            </p>
+          {!item.is_available && (
+            <span className="rounded bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">
+              Sold out
+            </span>
           )}
         </div>
-
-        {showImage && (
-          <img
-            src={item.image_url as string}
-            alt={item.name}
-            width={96}
-            height={96}
-            loading="lazy"
-            decoding="async"
-            className={cn('h-24 w-24 shrink-0 rounded-xl object-cover', unavailable && 'opacity-60 grayscale')}
-          />
-        )}
-      </button>
-    </li>
-  )
+      </div>
+      {item.image_url && (
+        <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
+          <img src={item.image_url} alt="" className="h-full w-full object-cover" />
+        </div>
+      )}
+    </button>
+  );
 }

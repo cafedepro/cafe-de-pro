@@ -1,64 +1,51 @@
-import { supabase } from '../lib/supabase'
-import type { Category, MenuItem, Restaurant, RestaurantSettings } from '../types/database'
-import type { AddOn, ItemVariant, PublicMenu } from '../types/menu'
+import { supabase } from "../lib/supabase";
+import type { PublicMenuData, PublicMenuItem } from "../types/menu";
 
-const DEFAULT_SETTINGS = (restaurantId: string): RestaurantSettings => ({
-  id: 'default',
-  restaurant_id: restaurantId,
-  primary_color: '#111827',
-  secondary_color: '#F9FAFB',
-  accent_color: '#F59E0B',
-  font_family: 'Inter',
-  menu_style: 'cards',
-  show_prices: true,
-  show_images: true,
-  show_descriptions: true,
-  show_calories: false,
-  show_unavailable_items: true,
-  enable_ordering: false,
-  enable_whatsapp: true,
-  enable_call_waiter: false,
-})
+export async function getPublicMenu(slug: string): Promise<PublicMenuData | null> {
+  const { data: restaurant, error: restaurantError } = await supabase
+    .from("restaurants")
+    .select("*")
+    .eq("slug", slug)
+    .eq("is_active", true)
+    .maybeSingle();
 
-// Returns null when the restaurant does not exist or is switched off.
-export async function fetchPublicMenu(slug: string): Promise<PublicMenu | null> {
-  const { data: restaurant, error } = await supabase
-    .from('restaurants')
-    .select('*')
-    .eq('slug', slug)
-    .eq('is_active', true)
-    .maybeSingle()
-  if (error) throw error
-  if (!restaurant) return null
+  if (restaurantError) throw restaurantError;
+  if (!restaurant) return null;
 
-  const rid = (restaurant as Restaurant).id
-  const [settings, categories, items, variants, addOns] = await Promise.all([
-    supabase.from('restaurant_settings').select('*').eq('restaurant_id', rid).maybeSingle(),
-    supabase
-      .from('categories')
-      .select('*')
-      .eq('restaurant_id', rid)
-      .eq('is_active', true)
-      .order('display_order', { ascending: true }),
-    supabase
-      .from('menu_items')
-      .select('*')
-      .eq('restaurant_id', rid)
-      .order('display_order', { ascending: true }),
-    supabase.from('item_variants').select('*').eq('restaurant_id', rid).order('display_order', { ascending: true }),
-    supabase.from('add_ons').select('*').eq('restaurant_id', rid).order('display_order', { ascending: true }),
-  ])
+  const [{ data: categories, error: categoriesError }, { data: items, error: itemsError }] =
+    await Promise.all([
+      supabase
+        .from("categories")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .eq("is_active", true)
+        .order("display_order", { ascending: true }),
+      supabase
+        .from("menu_items")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .order("display_order", { ascending: true }),
+    ]);
 
-  for (const r of [settings, categories, items, variants, addOns]) {
-    if (r.error) throw r.error
+  if (categoriesError) throw categoriesError;
+  if (itemsError) throw itemsError;
+
+  const itemsByCategory: Record<string, PublicMenuItem[]> = {};
+  for (const item of items ?? []) {
+    // Supabase returns numeric columns as strings — normalize to numbers here
+    // so nothing downstream has to remember to do it.
+    const normalized: PublicMenuItem = {
+      ...item,
+      price: Number(item.price),
+      original_price: item.original_price != null ? Number(item.original_price) : null,
+    };
+    if (!itemsByCategory[item.category_id]) itemsByCategory[item.category_id] = [];
+    itemsByCategory[item.category_id].push(normalized);
   }
 
   return {
-    restaurant: restaurant as Restaurant,
-    settings: (settings.data as RestaurantSettings | null) ?? DEFAULT_SETTINGS(rid),
-    categories: (categories.data ?? []) as Category[],
-    items: (items.data ?? []) as MenuItem[],
-    variants: (variants.data ?? []) as ItemVariant[],
-    addOns: (addOns.data ?? []) as AddOn[],
-  }
+    restaurant,
+    categories: categories ?? [],
+    itemsByCategory,
+  };
 }

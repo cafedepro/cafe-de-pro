@@ -1,34 +1,41 @@
-import { useEffect, useState } from 'react'
-import { fetchPublicMenu } from '../services/publicMenu'
-import type { PublicMenu } from '../types/menu'
+import { useEffect, useState } from "react";
+import { getPublicMenu } from "../services/publicMenu";
+import type { PublicMenuData } from "../types/menu";
 
-export type PublicMenuState =
-  | { status: 'loading' }
-  | { status: 'notfound' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; data: PublicMenu }
-
-export function usePublicMenu(slug: string | undefined): PublicMenuState {
-  const [state, setState] = useState<PublicMenuState>({ status: 'loading' })
+export function usePublicMenu(slug: string | undefined) {
+  const [data, setData] = useState<PublicMenuData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    if (!slug) {
-      setState({ status: 'notfound' })
-      return
-    }
-    let cancelled = false
-    setState({ status: 'loading' })
-    fetchPublicMenu(slug)
-      .then((data) => {
-        if (!cancelled) setState(data ? { status: 'ready', data } : { status: 'notfound' })
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setState({ status: 'error', message: e instanceof Error ? e.message : 'Could not load the menu.' })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [slug])
+    if (!slug) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setNotFound(false);
 
-  return state
+    getPublicMenu(slug)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result) {
+          setNotFound(true);
+        } else {
+          setData(result);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Couldn't load the menu");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  return { data, loading, error, notFound };
 }

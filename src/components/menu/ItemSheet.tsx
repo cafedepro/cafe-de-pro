@@ -1,144 +1,72 @@
-import { useEffect, useRef } from 'react'
-import { Clock, Flame, Star, X } from 'lucide-react'
-import DietMark from '../DietMark'
-import { formatPrice } from '../../lib/format'
-import type { MenuItem, RestaurantSettings } from '../../types/database'
-import type { AddOn, ItemVariant } from '../../types/menu'
+import type { PublicMenuItem } from "../../types/menu";
+import { DietIndicator } from "./MenuItemCard";
 
-const serif = { fontFamily: 'Georgia, "Times New Roman", serif' }
-
-interface Props {
-  item: MenuItem
-  variants: ItemVariant[]
-  addOns: AddOn[]
-  currency: string
-  settings: RestaurantSettings
-  onClose: () => void
+interface ItemSheetProps {
+  item: PublicMenuItem;
+  currency: string;
+  onClose: () => void;
 }
 
-// Bottom sheet on phones, centred card on larger screens. Uses the native
-// <dialog> element, so Esc, focus trapping and screen readers work correctly.
-export default function ItemSheet({ item, variants, addOns, currency, settings, onClose }: Props) {
-  const ref = useRef<HTMLDialogElement>(null)
+function formatPrice(amount: number, currency: string) {
+  try {
+    return new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
 
-  useEffect(() => {
-    const dialog = ref.current
-    if (dialog && !dialog.open) dialog.showModal()
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previous
-    }
-  }, [])
-
-  const showImage = settings.show_images && !!item.image_url
-  const unavailable = !item.is_available
-  const dietLabel = item.is_vegan ? 'Vegan' : item.is_vegetarian ? 'Vegetarian' : item.is_non_vegetarian ? 'Non-vegetarian' : null
-  const availableAddOns = addOns.filter((a) => a.is_available)
-
+export function ItemSheet({ item, currency, onClose }: ItemSheetProps) {
   return (
-    <dialog
-      ref={ref}
-      aria-labelledby="item-sheet-title"
-      onClose={onClose}
-      onClick={(e) => {
-        if (e.target === ref.current) ref.current?.close()
-      }}
-      className="m-0 mt-auto max-h-[92dvh] w-full max-w-none overflow-y-auto rounded-t-3xl bg-white p-0 text-stone-900 backdrop:bg-black/50 sm:m-auto sm:max-w-lg sm:rounded-3xl"
-    >
-      <div className="relative">
-        {showImage && (
-          <img src={item.image_url as string} alt={item.name} className="h-56 w-full object-cover sm:h-64" decoding="async" />
+    <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
+      <div
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {item.image_url && (
+          <div className="-mx-5 -mt-5 mb-4 h-48 overflow-hidden bg-gray-100 sm:rounded-t-2xl">
+            <img src={item.image_url} alt="" className="h-full w-full object-cover" />
+          </div>
         )}
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={() => ref.current?.close()}
-          className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-white/90 shadow hover:bg-white"
-        >
-          <X size={20} aria-hidden />
-        </button>
 
-        <div className={showImage ? 'p-5' : 'p-5 pr-16'}>
-          <div className="flex items-start gap-2">
-            <span className="mt-1.5">
-              <DietMark isVeg={item.is_vegetarian} isNonVeg={item.is_non_vegetarian} />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-1.5">
+            <DietIndicator item={item} />
+            <h2 className="text-lg font-semibold text-gray-900">{item.name}</h2>
+            {item.is_spicy && <span title="Spicy">🌶️</span>}
+          </div>
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {item.description && <p className="mt-2 text-gray-600">{item.description}</p>}
+
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-lg font-semibold text-gray-900">
+            {formatPrice(item.price, currency)}
+          </span>
+          {item.original_price && item.original_price > item.price && (
+            <span className="text-gray-400 line-through">
+              {formatPrice(item.original_price, currency)}
             </span>
-            <h2 id="item-sheet-title" className="text-2xl font-bold leading-snug" style={serif}>
-              {item.name}
-            </h2>
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-600">
-            {dietLabel && <span>{dietLabel}</span>}
-            {item.is_spicy && (
-              <span className="inline-flex items-center gap-1 text-red-700">
-                <Flame size={14} aria-hidden /> Spicy
-              </span>
-            )}
-            {item.is_featured && (
-              <span className="inline-flex items-center gap-1 text-amber-700">
-                <Star size={14} aria-hidden /> Featured
-              </span>
-            )}
-            {item.preparation_time != null && (
-              <span className="inline-flex items-center gap-1">
-                <Clock size={14} aria-hidden /> About {item.preparation_time} min
-              </span>
-            )}
-            {settings.show_calories && item.calories != null && <span>{item.calories} kcal</span>}
-          </div>
-
-          {item.description && <p className="mt-4 leading-relaxed text-stone-700">{item.description}</p>}
-
-          {settings.show_prices && (
-            <p className="mt-4 flex items-baseline gap-2">
-              <span className="text-2xl font-bold">{formatPrice(item.price, currency)}</span>
-              {item.original_price != null && item.original_price > item.price && (
-                <span className="text-stone-400 line-through">{formatPrice(item.original_price, currency)}</span>
-              )}
-            </p>
-          )}
-
-          {unavailable && (
-            <p className="mt-4 rounded-xl bg-stone-100 px-4 py-3 font-medium text-stone-700">
-              This item is currently unavailable.
-            </p>
-          )}
-
-          {variants.length > 0 && (
-            <section className="mt-6" aria-labelledby="variants-title">
-              <h3 id="variants-title" className="mb-2 font-semibold">
-                Sizes
-              </h3>
-              <ul className="divide-y divide-stone-200 rounded-xl border border-stone-200">
-                {variants.map((v) => (
-                  <li key={v.id} className="flex justify-between px-4 py-3">
-                    <span>{v.name}</span>
-                    {settings.show_prices && <span className="font-medium">{formatPrice(v.price, currency)}</span>}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {availableAddOns.length > 0 && (
-            <section className="mt-6" aria-labelledby="addons-title">
-              <h3 id="addons-title" className="mb-2 font-semibold">
-                Add-ons
-              </h3>
-              <ul className="divide-y divide-stone-200 rounded-xl border border-stone-200">
-                {availableAddOns.map((a) => (
-                  <li key={a.id} className="flex justify-between px-4 py-3">
-                    <span>{a.name}</span>
-                    {settings.show_prices && <span className="font-medium">+ {formatPrice(a.price, currency)}</span>}
-                  </li>
-                ))}
-              </ul>
-            </section>
           )}
         </div>
+
+        <div className="mt-3 flex flex-wrap gap-3 text-sm text-gray-500">
+          {item.preparation_time != null && <span>~{item.preparation_time} min</span>}
+          {item.calories != null && <span>{item.calories} kcal</span>}
+        </div>
+
+        {!item.is_available && (
+          <p className="mt-4 rounded-md bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600">
+            Currently sold out
+          </p>
+        )}
       </div>
-    </dialog>
-  )
+    </div>
+  );
 }

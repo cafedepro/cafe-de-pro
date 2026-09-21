@@ -1,218 +1,260 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { ArrowDown, ArrowUp, Eye, EyeOff, Pencil, Trash2 } from 'lucide-react'
-import { Button, Field, FormError } from '../../components/admin/ui'
-import { useRestaurant } from '../../context/RestaurantContext'
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useRestaurant } from "../../context/RestaurantContext";
 import {
   createCategory,
   deleteCategory,
   listCategories,
-  reorderCategories,
+  swapCategoryOrder,
   updateCategory,
-} from '../../services/categories'
-import { categorySchema, type CategoryValues } from '../../validation/category'
-import type { Category } from '../../types/database'
-import { cn } from '../../lib/utils'
+} from "../../services/categories";
+import type { Category } from "../../services/categories";
+import { categorySchema } from "../../validation/category";
+import type { CategoryFormValues } from "../../validation/category";
 
 export default function CategoriesPage() {
-  const { restaurant } = useRestaurant()
-  const [categories, setCategories] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
+  const { restaurant } = useRestaurant();
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<CategoryValues>({
+  } = useForm<CategoryFormValues>({
     resolver: zodResolver(categorySchema),
-    defaultValues: { name: '', description: '' },
-  })
+    defaultValues: { name: "", description: "" },
+  });
 
-  const restaurantId = restaurant?.id
-
-  const load = useCallback(async () => {
-    if (!restaurantId) return
-    setLoading(true)
-    try {
-      setCategories(await listCategories(restaurantId))
-      setError('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load categories.')
-    } finally {
-      setLoading(false)
-    }
-  }, [restaurantId])
+  const editForm = useForm<CategoryFormValues>({
+    resolver: zodResolver(categorySchema),
+  });
 
   useEffect(() => {
-    void load()
-  }, [load])
+    if (!restaurant) return;
+    refresh();
+  }, [restaurant?.id]);
 
-  if (!restaurantId) return null
-
-  const run = async (action: () => Promise<void>) => {
-    setError('')
+  async function refresh() {
+    if (!restaurant) return;
+    setLoading(true);
     try {
-      await action()
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Try again.')
+      const data = await listCategories(restaurant.id);
+      setCategories(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't load categories");
+    } finally {
+      setLoading(false);
     }
   }
 
-  const onAdd = (v: CategoryValues) =>
-    run(async () => {
-      const nextOrder = categories.length ? Math.max(...categories.map((c) => c.display_order)) + 1 : 0
-      await createCategory(restaurantId, v, nextOrder)
-      reset()
-    })
-
-  const move = (index: number, direction: -1 | 1) => {
-    const target = index + direction
-    if (target < 0 || target >= categories.length) return
-    const ids = categories.map((c) => c.id)
-    ;[ids[index], ids[target]] = [ids[target], ids[index]]
-    void run(() => reorderCategories(ids))
-  }
-
-  const saveName = (c: Category) => {
-    const name = editName.trim()
-    if (!name || name === c.name) {
-      setEditingId(null)
-      return
+  async function onAdd(values: CategoryFormValues) {
+    if (!restaurant) return;
+    setError(null);
+    try {
+      const created = await createCategory(restaurant.id, values);
+      setCategories((prev) => [...prev, created]);
+      reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't add category");
     }
-    void run(async () => {
-      await updateCategory(c.id, { name })
-      setEditingId(null)
-    })
   }
 
-  const remove = (c: Category) => {
+  function startEdit(category: Category) {
+    setEditingId(category.id);
+    editForm.reset({ name: category.name, description: category.description ?? "" });
+  }
+
+  async function onSaveEdit(values: CategoryFormValues) {
+    if (!editingId) return;
+    setSavingId(editingId);
+    try {
+      const updated = await updateCategory(editingId, values);
+      setCategories((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      setEditingId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save changes");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function onDelete(category: Category) {
     const ok = window.confirm(
-      `Delete "${c.name}"? All menu items inside this category will be deleted too. This cannot be undone.`,
-    )
-    if (ok) void run(() => deleteCategory(c.id))
+      `Delete "${category.name}"? Menu items in this category will need a new category before they can be shown again.`
+    );
+    if (!ok) return;
+    setSavingId(category.id);
+    try {
+      await deleteCategory(category.id);
+      setCategories((prev) => prev.filter((c) => c.id !== category.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete category");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function move(index: number, direction: -1 | 1) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= categories.length) return;
+    const a = categories[index];
+    const b = categories[targetIndex];
+    setSavingId(a.id);
+    try {
+      await swapCategoryOrder(a, b);
+      const next = [...categories];
+      next[index] = { ...b, display_order: a.display_order };
+      next[targetIndex] = { ...a, display_order: b.display_order };
+      setCategories(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't reorder categories");
+    } finally {
+      setSavingId(null);
+    }
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Categories</h1>
-        <p className="mt-1 text-stone-600">Group your menu into sections like Starters, Drinks or Desserts.</p>
+    <div>
+      <h1 className="text-2xl font-semibold text-gray-900">Categories</h1>
+      <p className="mt-1 text-gray-500">Group your menu into sections like Starters, Drinks or Desserts.</p>
+
+      {error && (
+        <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="font-medium text-gray-900">Add a category</h2>
+        <form onSubmit={handleSubmit(onAdd)} className="mt-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Name</label>
+            <input
+              {...register("name")}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+              placeholder="e.g. Starters"
+            />
+            {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Short description (optional)</label>
+            <input
+              {...register("description")}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+              placeholder="e.g. Small plates to share"
+            />
+            {errors.description && (
+              <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="rounded-md bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+          >
+            {isSubmitting ? "Adding..." : "Add category"}
+          </button>
+        </form>
       </div>
 
-      <form
-        onSubmit={handleSubmit(onAdd)}
-        noValidate
-        className="space-y-3 rounded-xl border border-stone-200 bg-white p-5"
-      >
-        <h2 className="font-medium">Add a category</h2>
-        <Field label="Name" error={errors.name?.message} {...register('name')} />
-        <Field
-          label="Short description (optional)"
-          error={errors.description?.message}
-          {...register('description')}
-        />
-        <Button type="submit" loading={isSubmitting}>
-          Add category
-        </Button>
-      </form>
-
-      <FormError>{error}</FormError>
-
-      <section aria-label="Your categories" className="rounded-xl border border-stone-200 bg-white">
+      <div className="mt-6 rounded-lg border border-gray-200 bg-white shadow-sm">
         {loading ? (
-          <p className="p-5 text-stone-600">Loading…</p>
+          <p className="p-6 text-gray-500">Loading...</p>
         ) : categories.length === 0 ? (
-          <p className="p-5 text-stone-600">No categories yet. Add your first one above.</p>
+          <p className="p-6 text-gray-500">No categories yet. Add your first one above.</p>
         ) : (
-          <ul className="divide-y divide-stone-200">
-            {categories.map((c, i) => (
-              <li key={c.id} className="flex flex-wrap items-center gap-2 p-4">
-                <div className="min-w-0 flex-1">
-                  {editingId === c.id ? (
+          <ul className="divide-y divide-gray-100">
+            {categories.map((category, index) => (
+              <li key={category.id} className="p-4">
+                {editingId === category.id ? (
+                  <form
+                    onSubmit={editForm.handleSubmit(onSaveEdit)}
+                    className="space-y-3"
+                  >
                     <input
-                      autoFocus
-                      aria-label="Category name"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') saveName(c)
-                        if (e.key === 'Escape') setEditingId(null)
-                      }}
-                      onBlur={() => saveName(c)}
-                      className="w-full rounded-lg border border-stone-300 px-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
+                      {...editForm.register("name")}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
                     />
-                  ) : (
-                    <>
-                      <p className={cn('truncate font-medium', !c.is_active && 'text-stone-400 line-through')}>
-                        {c.name}
+                    {editForm.formState.errors.name && (
+                      <p className="text-sm text-red-600">
+                        {editForm.formState.errors.name.message}
                       </p>
-                      {c.description && <p className="truncate text-sm text-stone-500">{c.description}</p>}
-                    </>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <IconButton label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
-                    <ArrowUp size={18} />
-                  </IconButton>
-                  <IconButton label="Move down" disabled={i === categories.length - 1} onClick={() => move(i, 1)}>
-                    <ArrowDown size={18} />
-                  </IconButton>
-                  <IconButton
-                    label={c.is_active ? 'Hide from menu' : 'Show on menu'}
-                    onClick={() => void run(() => updateCategory(c.id, { is_active: !c.is_active }))}
-                  >
-                    {c.is_active ? <Eye size={18} /> : <EyeOff size={18} />}
-                  </IconButton>
-                  <IconButton
-                    label="Rename"
-                    onClick={() => {
-                      setEditingId(c.id)
-                      setEditName(c.name)
-                    }}
-                  >
-                    <Pencil size={18} />
-                  </IconButton>
-                  <IconButton label="Delete" onClick={() => remove(c)}>
-                    <Trash2 size={18} />
-                  </IconButton>
-                </div>
+                    )}
+                    <input
+                      {...editForm.register("description")}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                      placeholder="Short description (optional)"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={savingId === category.id}
+                        className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-gray-900">{category.name}</p>
+                      {category.description && (
+                        <p className="text-sm text-gray-500">{category.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => move(index, -1)}
+                        disabled={index === 0 || savingId === category.id}
+                        title="Move up"
+                        className="rounded-md border border-gray-300 px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-30"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        onClick={() => move(index, 1)}
+                        disabled={index === categories.length - 1 || savingId === category.id}
+                        title="Move down"
+                        className="rounded-md border border-gray-300 px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-30"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        onClick={() => startEdit(category)}
+                        className="ml-2 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => onDelete(category)}
+                        disabled={savingId === category.id}
+                        className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </div>
     </div>
-  )
-}
-
-function IconButton({
-  label,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="rounded-lg p-2 text-stone-600 hover:bg-stone-100 focus-visible:outline-2 focus-visible:outline-emerald-700 disabled:opacity-30 disabled:hover:bg-transparent"
-    >
-      {children}
-    </button>
-  )
+  );
 }
