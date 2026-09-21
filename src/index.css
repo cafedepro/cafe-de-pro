@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+html, body, #root { height: 100%; }
+body { font-family: var(--font-sans); background: #f7f7f5; color: #1c1f1d; }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
