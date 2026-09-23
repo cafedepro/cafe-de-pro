@@ -12,6 +12,7 @@ import MenuItemsPage from './pages/admin/MenuItemsPage'
 import RestaurantPage from './pages/admin/RestaurantPage'
 import SettingsPage from './pages/admin/SettingsPage'
 import QrPage from './pages/admin/QrPage'
+import OrdersPage from './pages/admin/OrdersPage'
 import MenuPage from './pages/customer/MenuPage'
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="restaurant" element={<RestaurantPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="items" element={<MenuItemsPage />} />
+            <Route path="orders" element={<OrdersPage />} />
             <Route path="qr" element={<QrPage />} />
             <Route path="analytics" element={<ComingSoonPage title="Analytics" />} />
             <Route path="settings" element={<SettingsPage />} />
