@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, LayoutDashboard, LayoutList, LogOut, QrCode, Settings, Store, UtensilsCrossed } from 'lucide-react'
+import { BarChart3, ClipboardList, LayoutDashboard, LayoutList, LogOut, QrCode, Settings, Store, UtensilsCrossed } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useRestaurant } from '../context/RestaurantContext'
 import { cn } from '../lib/utils'
@@ -9,6 +9,7 @@ const nav = [
   { to: '/admin/restaurant', label: 'Restaurant', icon: Store },
   { to: '/admin/categories', label: 'Categories', icon: LayoutList },
   { to: '/admin/items', label: 'Menu items', icon: UtensilsCrossed },
+  { to: '/admin/orders', label: 'Orders', icon: ClipboardList },
   { to: '/admin/qr', label: 'QR codes', icon: QrCode },
   { to: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/admin/settings', label: 'Settings', icon: Settings },
